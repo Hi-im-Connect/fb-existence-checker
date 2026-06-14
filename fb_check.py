@@ -81,12 +81,57 @@ def load_lines(path, id_col):
                 if line.strip():
                     yield line.strip()
 
+_ID_IN_HTML = re.compile(
+    r'"userID":"(\d+)"|"entity_id":"(\d+)"|"delegate_page":\{"id":"(\d+)"'
+    r'|fb://(?:profile|page)/(\d+)|"pageID":"(\d+)"'
+)
+
+def resolve_ids(raws):
+    """Resolve vanity /username inputs to numeric IDs by rendering the real page
+    with a stealth browser. Returns {raw: id_or_None}. Needs `patchright` +
+    `patchright install chromium` (lazy-imported so the core stays dependency-free)."""
+    try:
+        from patchright.sync_api import sync_playwright
+    except ImportError:
+        print("  [--resolve] needs patchright:  pip install patchright && patchright install chromium",
+              file=sys.stderr)
+        return {}
+    out = {}
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        except Exception as e:
+            print(f"  [--resolve] could not launch browser ({e}).\n"
+                  f"  Install the browser:  patchright install chromium", file=sys.stderr)
+            return {}
+        for raw in raws:
+            url = raw if raw.startswith("http") else f"https://www.facebook.com/{raw}"
+            fid = None
+            try:
+                pg = browser.new_page()
+                pg.goto(url, wait_until="domcontentloaded", timeout=45000)
+                pg.wait_for_timeout(2500)
+                html = pg.content()
+                pg.close()
+                m = _ID_IN_HTML.search(html)
+                if m:
+                    fid = next((g for g in m.groups() if g), None)
+            except Exception:
+                pass
+            out[raw] = fid
+            print(f"  [resolve] {raw[:45]} -> {fid or 'FAILED'}", file=sys.stderr, flush=True)
+        browser.close()
+    return out
+
 def main():
     ap = argparse.ArgumentParser(description="Bulk-check Facebook profile existence (free, no login).")
     ap.add_argument("input", help="text file (one id/url per line) or CSV")
     ap.add_argument("-o", "--out", default="fb_results.csv")
     ap.add_argument("-w", "--workers", type=int, default=15)
     ap.add_argument("--id-col", help="if input is a CSV, the column holding the id/url")
+    ap.add_argument("--resolve", action="store_true",
+                    help="for vanity /username inputs with no numeric id, render the page with a "
+                         "stealth browser (needs patchright) to resolve the id, then check it")
     args = ap.parse_args()
 
     items = list(load_lines(args.input, args.id_col))
@@ -101,6 +146,16 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         list(ex.map(work, range(total)))
+
+    # Second pass: resolve vanity /username inputs (NO_ID) to numeric ids, then check them.
+    if args.resolve:
+        no_id = [i for i in range(total) if results[i][1] == "NO_ID"]
+        if no_id:
+            print(f"resolving {len(no_id)} vanity URLs via stealth browser...", file=sys.stderr)
+            mapping = resolve_ids([items[i] for i in no_id])
+            for i in no_id:
+                rid = mapping.get(items[i])
+                results[i] = (rid, classify(rid)) if rid else ("", "NO_ID_UNRESOLVED")
 
     with open(args.out, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)

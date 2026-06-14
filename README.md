@@ -13,13 +13,38 @@ for IDs that don't exist.
 | `LIVE` | Profile exists and has a public profile photo |
 | `NO_PHOTO` | Profile object exists but returns a default/blank avatar — **ambiguous**: active-without-photo, privacy-restricted, **or** deactivated |
 | `DEAD` | Facebook returns "does not exist" (HTTP 400) — invalid / fully removed |
-| `NO_ID` | Input was a vanity `/username` URL with no numeric ID (can't be resolved this way) |
+| `NO_ID` | Input was a vanity `/username` URL with no numeric ID (run with `--resolve` to fix) |
+| `NO_ID_UNRESOLVED` | `--resolve` was on but the browser couldn't extract an ID (blocked / private / gone) |
 | `UNKNOWN_*` | Transient / network / rate-limit (retried once) |
 
-> **Only numeric Facebook IDs work.** Vanity `/username` URLs return 400 from the
-> graph endpoint without an access token, so they're flagged `NO_ID`. To resolve
-> those (and to fetch names / a definitive alive-vs-dead on `NO_PHOTO`), you need a
-> real browser fetch of the page (reads `og:title`) — out of scope for this tool.
+> **The fast path needs numeric Facebook IDs.** Vanity `/username` URLs return 400
+> from the graph endpoint without an access token, so they're flagged `NO_ID` — use
+> `--resolve` (below) to convert them.
+
+## Resolving vanity `/username` URLs (`--resolve`)
+
+Pass `--resolve` to convert vanity URLs to numeric IDs by rendering the real page
+with a stealth browser, then checking the resolved ID:
+
+```bash
+python3 fb_check.py input.txt --resolve -o results.csv
+# [resolve] https://www.facebook.com/zuck -> 4
+# zuck,4,LIVE
+```
+
+This step is **optional** and lazy-imports
+[`patchright`](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright), so the core tool
+stays dependency-free. To enable it:
+
+```bash
+pip install patchright
+patchright install chromium
+```
+
+Direct HTTP fetches of Facebook pages are blocked from datacenter IPs, which is why
+resolution needs a real (stealth) browser rather than a plain request. Without
+`--resolve` — or if the browser can't launch — vanity URLs simply stay `NO_ID` and
+nothing else is affected.
 
 ## Usage
 
