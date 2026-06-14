@@ -14,7 +14,7 @@ for IDs that don't exist.
 | `NO_PHOTO` | Profile object exists but returns a default/blank avatar — **ambiguous**: active-without-photo, privacy-restricted, **or** deactivated |
 | `DEAD` | Facebook returns "does not exist" (HTTP 400) — invalid / fully removed |
 | `NO_ID` | Input was a vanity `/username` URL with no numeric ID (run with `--resolve` to fix) |
-| `NO_ID_UNRESOLVED` | `--resolve` was on but the browser couldn't extract an ID (blocked / private / gone) |
+| `NO_ID_UNRESOLVED` | `--resolve` was on but the resolver couldn't extract an ID (blocked / private / gone) |
 | `UNKNOWN_*` | Transient / network / rate-limit (retried once) |
 
 > **The fast path needs numeric Facebook IDs.** Vanity `/username` URLs return 400

@@ -140,8 +140,8 @@ def main():
     ap.add_argument("-w", "--workers", type=int, default=15)
     ap.add_argument("--id-col", help="if input is a CSV, the column holding the id/url")
     ap.add_argument("--resolve", action="store_true",
-                    help="for vanity /username inputs with no numeric id, render the page with a "
-                         "stealth browser (needs patchright) to resolve the id, then check it")
+                    help="for vanity /username inputs with no numeric id, resolve the id over HTTP "
+                         "via curl_cffi TLS impersonation (no browser; needs: pip install curl_cffi)")
     args = ap.parse_args()
 
     items = list(load_lines(args.input, args.id_col))
@@ -161,7 +161,7 @@ def main():
     if args.resolve:
         no_id = [i for i in range(total) if results[i][1] == "NO_ID"]
         if no_id:
-            print(f"resolving {len(no_id)} vanity URLs via stealth browser...", file=sys.stderr)
+            print(f"resolving {len(no_id)} vanity URLs via curl_cffi (no browser)...", file=sys.stderr)
             mapping = resolve_ids([items[i] for i in no_id])
             for i in no_id:
                 rid = mapping.get(items[i])
