@@ -86,65 +86,51 @@ _ID_IN_HTML = re.compile(
     r'|fb://(?:profile|page)/(\d+)|"pageID":"(\d+)"|profile_id=(\d+)|/profile\.php\?id=(\d+)'
 )
 
-def _urls_for(raw):
-    """Return (primary, mbasic_fallback) URLs for a vanity input."""
-    if raw.startswith("http"):
-        primary = raw
-        mb = re.sub(r"https?://(?:www\.|m\.)?facebook\.com", "https://mbasic.facebook.com", raw)
-    else:
-        primary = f"https://www.facebook.com/{raw}"
-        mb = f"https://mbasic.facebook.com/{raw}"
-    return primary, mb
+def _profile_url(raw):
+    return raw if raw.startswith("http") else f"https://www.facebook.com/{raw}"
 
 def resolve_ids(raws, attempts=3):
-    """Resolve vanity /username inputs to numeric IDs by rendering the real page
-    with a stealth browser. Returns {raw: id_or_None}. Needs `patchright` +
-    `patchright install chromium` (lazy-imported so the core stays dependency-free).
+    """Resolve vanity /username inputs to numeric IDs — NO browser.
 
-    Uses a fresh browser context per input plus retries and an mbasic fallback,
-    because Facebook serves a login wall (no id) on a fraction of attempts."""
+    Uses `curl_cffi` (lazy-imported) to impersonate a real Chrome TLS fingerprint,
+    which is what gets past Facebook's edge block. A session is seeded against the
+    homepage first to pick up the `datr` cookie, so Facebook serves the full public
+    profile page (not the login wall); the numeric id is then read from the HTML.
+
+    Returns {raw: id_or_None}. Needs:  pip install curl_cffi"""
     try:
-        from patchright.sync_api import sync_playwright
+        from curl_cffi import requests as creq
     except ImportError:
-        print("  [--resolve] needs patchright:  pip install patchright && patchright install chromium",
-              file=sys.stderr)
+        print("  [--resolve] needs curl_cffi:  pip install curl_cffi", file=sys.stderr)
         return {}
 
-    def grab(page, url):
-        page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        page.wait_for_timeout(2500)
-        m = _ID_IN_HTML.search(page.content())
+    sess = creq.Session(impersonate="chrome")
+    try:
+        sess.get("https://www.facebook.com/", timeout=30)   # seed datr/sb cookies
+    except Exception:
+        pass
+
+    def grab(url):
+        r = sess.get(url, timeout=30)
+        m = _ID_IN_HTML.search(r.text)
         return next((g for g in m.groups() if g), None) if m else None
 
+    import time
     out = {}
-    with sync_playwright() as p:
-        try:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        except Exception as e:
-            print(f"  [--resolve] could not launch browser ({e}).\n"
-                  f"  Install the browser:  patchright install chromium", file=sys.stderr)
-            return {}
-        for raw in raws:
-            primary, mbasic = _urls_for(raw)
-            fid = None
-            ctx = browser.new_context(viewport={"width": 1280, "height": 800}, locale="en-US")
-            pg = ctx.new_page()
-            for _ in range(attempts):          # retry: FB shows a login wall on some hits
-                try:
-                    fid = grab(pg, primary)
-                    if fid:
-                        break
-                except Exception:
-                    pass
-            if not fid:                         # lighter mbasic page as last resort
-                try:
-                    fid = grab(pg, mbasic)
-                except Exception:
-                    pass
-            ctx.close()
-            out[raw] = fid
-            print(f"  [resolve] {raw[:45]} -> {fid or 'FAILED'}", file=sys.stderr, flush=True)
-        browser.close()
+    for raw in raws:
+        url = _profile_url(raw)
+        fid = None
+        for attempt in range(attempts):   # FB serves a login wall (no id) on a fraction of hits
+            try:
+                fid = grab(url)
+                if fid:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.6 * (attempt + 1))   # back off a little between retries
+        out[raw] = fid
+        print(f"  [resolve] {raw[:45]} -> {fid or 'FAILED'}", file=sys.stderr, flush=True)
+        time.sleep(0.4)                       # be gentle: avoid burst rate-limiting
     return out
 
 def main():

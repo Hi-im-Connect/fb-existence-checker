@@ -23,8 +23,11 @@ for IDs that don't exist.
 
 ## Resolving vanity `/username` URLs (`--resolve`)
 
-Pass `--resolve` to convert vanity URLs to numeric IDs by rendering the real page
-with a stealth browser, then checking the resolved ID:
+Pass `--resolve` to convert vanity URLs to numeric IDs, then check the resolved ID.
+**No browser** — it uses [`curl_cffi`](https://github.com/lexiforest/curl_cffi) to
+impersonate a real Chrome TLS fingerprint (that's what gets past Facebook's edge
+block), seeds a `datr` cookie from the homepage so FB serves the full public page,
+and reads the numeric id out of the HTML:
 
 ```bash
 python3 fb_check.py input.txt --resolve -o results.csv
@@ -32,19 +35,18 @@ python3 fb_check.py input.txt --resolve -o results.csv
 # zuck,4,LIVE
 ```
 
-This step is **optional** and lazy-imports
-[`patchright`](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright), so the core tool
-stays dependency-free. To enable it:
+This step is **optional** and lazy-imports `curl_cffi`, so the core tool stays
+dependency-free. To enable it:
 
 ```bash
-pip install patchright
-patchright install chromium
+pip install curl_cffi
 ```
 
-Direct HTTP fetches of Facebook pages are blocked from datacenter IPs, which is why
-resolution needs a real (stealth) browser rather than a plain request. Without
-`--resolve` — or if the browser can't launch — vanity URLs simply stay `NO_ID` and
-nothing else is affected.
+Plain `requests`/`curl` get blocked by Facebook at the **TLS-fingerprint** level
+(a 1.5 KB error page), which is why a normal HTTP request can't resolve usernames
+but `curl_cffi` (impersonating Chrome) can — no browser required. Facebook still
+serves a login wall on a fraction of hits, so each input is retried; anything that
+can't be resolved stays `NO_ID_UNRESOLVED` and can simply be re-run.
 
 ## Usage
 
