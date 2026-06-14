@@ -6,6 +6,12 @@ It uses the public `graph.facebook.com/<id>/picture` redirect: Facebook returns 
 photo for live profiles, a default avatar for blank/restricted ones, and an HTTP 400
 for IDs that don't exist.
 
+> **Recommended: feed numeric Facebook IDs, not usernames.** The numeric-ID check is
+> fast, reliable, and does **not** hit IP rate-limits. Converting vanity `/username`
+> URLs to IDs (`--resolve`) requires fetching facebook.com pages, which **can get your
+> IP rate-limited or temporarily banned** — use it only when you have no IDs. If your
+> data already has an ID column (most exports do), use that and skip `--resolve` entirely.
+
 ## Status values
 
 | Status | Meaning |
@@ -22,6 +28,11 @@ for IDs that don't exist.
 > `--resolve` (below) to convert them.
 
 ## Resolving vanity `/username` URLs (`--resolve`)
+
+> ⚠️ **IP-ban risk.** `--resolve` fetches facebook.com profile pages to turn usernames
+> into numeric IDs. Facebook actively rate-limits and can **temporarily ban the IP**
+> doing this. Only use it when you genuinely have no numeric IDs; prefer the numeric-ID
+> path, spread large jobs across machines, and re-run any `NO_ID_UNRESOLVED` leftovers.
 
 Pass `--resolve` to convert vanity URLs to numeric IDs, then check the resolved ID.
 **No browser** — it uses [`curl_cffi`](https://github.com/lexiforest/curl_cffi) to

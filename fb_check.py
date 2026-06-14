@@ -161,6 +161,10 @@ def main():
     if args.resolve:
         no_id = [i for i in range(total) if results[i][1] == "NO_ID"]
         if no_id:
+            print("  WARNING: --resolve fetches facebook.com profile pages to turn usernames into\n"
+                  "  numeric IDs. Facebook may RATE-LIMIT or TEMPORARILY BAN your IP for this.\n"
+                  "  Prefer supplying numeric Facebook IDs whenever you have them.",
+                  file=sys.stderr)
             print(f"resolving {len(no_id)} vanity URLs via curl_cffi (no browser)...", file=sys.stderr)
             mapping = resolve_ids([items[i] for i in no_id])
             for i in no_id:
