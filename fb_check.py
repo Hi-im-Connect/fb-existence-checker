@@ -83,19 +83,39 @@ def load_lines(path, id_col):
 
 _ID_IN_HTML = re.compile(
     r'"userID":"(\d+)"|"entity_id":"(\d+)"|"delegate_page":\{"id":"(\d+)"'
-    r'|fb://(?:profile|page)/(\d+)|"pageID":"(\d+)"'
+    r'|fb://(?:profile|page)/(\d+)|"pageID":"(\d+)"|profile_id=(\d+)|/profile\.php\?id=(\d+)'
 )
 
-def resolve_ids(raws):
+def _urls_for(raw):
+    """Return (primary, mbasic_fallback) URLs for a vanity input."""
+    if raw.startswith("http"):
+        primary = raw
+        mb = re.sub(r"https?://(?:www\.|m\.)?facebook\.com", "https://mbasic.facebook.com", raw)
+    else:
+        primary = f"https://www.facebook.com/{raw}"
+        mb = f"https://mbasic.facebook.com/{raw}"
+    return primary, mb
+
+def resolve_ids(raws, attempts=3):
     """Resolve vanity /username inputs to numeric IDs by rendering the real page
     with a stealth browser. Returns {raw: id_or_None}. Needs `patchright` +
-    `patchright install chromium` (lazy-imported so the core stays dependency-free)."""
+    `patchright install chromium` (lazy-imported so the core stays dependency-free).
+
+    Uses a fresh browser context per input plus retries and an mbasic fallback,
+    because Facebook serves a login wall (no id) on a fraction of attempts."""
     try:
         from patchright.sync_api import sync_playwright
     except ImportError:
         print("  [--resolve] needs patchright:  pip install patchright && patchright install chromium",
               file=sys.stderr)
         return {}
+
+    def grab(page, url):
+        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(2500)
+        m = _ID_IN_HTML.search(page.content())
+        return next((g for g in m.groups() if g), None) if m else None
+
     out = {}
     with sync_playwright() as p:
         try:
@@ -105,19 +125,23 @@ def resolve_ids(raws):
                   f"  Install the browser:  patchright install chromium", file=sys.stderr)
             return {}
         for raw in raws:
-            url = raw if raw.startswith("http") else f"https://www.facebook.com/{raw}"
+            primary, mbasic = _urls_for(raw)
             fid = None
-            try:
-                pg = browser.new_page()
-                pg.goto(url, wait_until="domcontentloaded", timeout=45000)
-                pg.wait_for_timeout(2500)
-                html = pg.content()
-                pg.close()
-                m = _ID_IN_HTML.search(html)
-                if m:
-                    fid = next((g for g in m.groups() if g), None)
-            except Exception:
-                pass
+            ctx = browser.new_context(viewport={"width": 1280, "height": 800}, locale="en-US")
+            pg = ctx.new_page()
+            for _ in range(attempts):          # retry: FB shows a login wall on some hits
+                try:
+                    fid = grab(pg, primary)
+                    if fid:
+                        break
+                except Exception:
+                    pass
+            if not fid:                         # lighter mbasic page as last resort
+                try:
+                    fid = grab(pg, mbasic)
+                except Exception:
+                    pass
+            ctx.close()
             out[raw] = fid
             print(f"  [resolve] {raw[:45]} -> {fid or 'FAILED'}", file=sys.stderr, flush=True)
         browser.close()
